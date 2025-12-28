@@ -81,6 +81,41 @@ app.delete('/contacts/:id', async (req, res) => {
   }
 });
 
+// PUT : modifier un contact
+app.put('/contacts/:id', async (req, res) => {
+  const { id } = req.params;
+
+  console.log('ID reçu pour modification:', id);
+
+  // Vérifier si l'ID est valide
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: 'ID invalide' });
+  }
+
+  try {
+    const updatedContact = await Contact.findByIdAndUpdate(
+      new mongoose.Types.ObjectId(id),
+      {
+        name: req.body.name,
+        phone: req.body.phone,
+        email: req.body.email,
+        address: req.body.address,
+        notes: req.body.notes,
+      },
+      { new: true } // Retourne le document mis à jour
+    );
+
+    if (!updatedContact) {
+      return res.status(404).json({ error: 'Contact introuvable' });
+    }
+
+    return res.status(200).json(updatedContact);
+  } catch (error) {
+    console.error('Erreur modification:', error);
+    return res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 // ========================
 // LANCER SERVEUR
 // ========================

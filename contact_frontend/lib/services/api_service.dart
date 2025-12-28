@@ -92,6 +92,46 @@ class ApiService {
       throw Exception('Impossible de supprimer le contact');
     }
   }
+
+  /// ============================
+/// PUT : modifier un contact
+/// ============================
+static Future<void> updateContact({
+  required String id,
+  required String name,
+  required String phone,
+  required String email,
+  required String address,
+  required String notes,
+}) async {
+  try {
+    print('MISE À JOUR CONTACT ID: $id');
+    
+    final response = await http.put(
+      Uri.parse('$baseUrl/contacts/$id'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'name': name,
+        'phone': phone,
+        'email': email,
+        'address': address,
+        'notes': notes,
+      }),
+    );
+
+    print('PUT STATUS: ${response.statusCode}');
+    print('PUT BODY: ${response.body}');
+
+    if (response.statusCode != 200) {
+      throw Exception('Erreur modification contact');
+    }
+  } catch (e) {
+    print('PUT ERROR: $e');
+    throw Exception('Impossible de modifier le contact');
+  }
+}
 }
 
 

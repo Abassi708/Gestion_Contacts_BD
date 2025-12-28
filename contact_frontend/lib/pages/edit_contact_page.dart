@@ -1,22 +1,96 @@
 import 'package:flutter/material.dart';
+import '../models/contact.dart';
 import '../services/api_service.dart';
 
-class AddContactPage extends StatefulWidget {
-  const AddContactPage({super.key});
+class EditContactPage extends StatefulWidget {
+  final Contact contact;
+  
+  const EditContactPage({super.key, required this.contact});
 
   @override
-  State<AddContactPage> createState() => _AddContactPageState();
+  State<EditContactPage> createState() => _EditContactPageState();
 }
 
-class _AddContactPageState extends State<AddContactPage> {
+class _EditContactPageState extends State<EditContactPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
 
-  final nameCtrl = TextEditingController();
-  final phoneCtrl = TextEditingController();
-  final emailCtrl = TextEditingController();
-  final addressCtrl = TextEditingController();
-  final notesCtrl = TextEditingController();
+  late TextEditingController nameCtrl;
+  late TextEditingController phoneCtrl;
+  late TextEditingController emailCtrl;
+  late TextEditingController addressCtrl;
+  late TextEditingController notesCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    nameCtrl = TextEditingController(text: widget.contact.name);
+    phoneCtrl = TextEditingController(text: widget.contact.phone);
+    emailCtrl = TextEditingController(text: widget.contact.email);
+    addressCtrl = TextEditingController(text: widget.contact.address);
+    notesCtrl = TextEditingController(text: widget.contact.notes);
+  }
+
+  @override
+  void dispose() {
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
+    emailCtrl.dispose();
+    addressCtrl.dispose();
+    notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _updateContact() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+
+      try {
+        // D'abord, supprimer l'ancien contact
+        await ApiService.deleteContact(widget.contact.id);
+        
+        // Ensuite, créer un nouveau contact avec les nouvelles données
+        await ApiService.addContact(
+          name: nameCtrl.text.trim(),
+          phone: phoneCtrl.text.trim(),
+          email: emailCtrl.text.trim(),
+          address: addressCtrl.text.trim(),
+          notes: notesCtrl.text.trim(),
+        );
+
+        // Message de succès
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 10),
+                Text('Contact modifié avec succès'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+          ),
+        );
+
+        // Retour avec succès
+        Navigator.pop(context, true);
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
@@ -37,79 +111,8 @@ class _AddContactPageState extends State<AddContactPage> {
         borderRadius: BorderRadius.circular(16),
         borderSide: const BorderSide(color: Color(0xFF1A237E), width: 2),
       ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.red, width: 1),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.red, width: 2),
-      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
     );
-  }
-
-  @override
-  void dispose() {
-    nameCtrl.dispose();
-    phoneCtrl.dispose();
-    emailCtrl.dispose();
-    addressCtrl.dispose();
-    notesCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submitForm() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-
-      try {
-        await ApiService.addContact(
-          name: nameCtrl.text.trim(),
-          phone: phoneCtrl.text.trim(),
-          email: emailCtrl.text.trim(),
-          address: addressCtrl.text.trim(),
-          notes: notesCtrl.text.trim(),
-        );
-
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 10),
-                Text('Contact ajouté avec succès'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-          ),
-        );
-
-        // Clear form
-        _formKey.currentState!.reset();
-
-        // Delay before going back
-        await Future.delayed(const Duration(milliseconds: 500));
-        
-        // Navigate back
-        Navigator.pop(context, true); // Return true to trigger refresh
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      } finally {
-        setState(() => _isLoading = false);
-      }
-    }
   }
 
   @override
@@ -119,7 +122,7 @@ class _AddContactPageState extends State<AddContactPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Header élégant avec gradient
+            // Header élégant
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -150,21 +153,23 @@ class _AddContactPageState extends State<AddContactPage> {
                         onPressed: () => Navigator.pop(context),
                       ),
                       const SizedBox(width: 10),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Nouveau Contact',
-                              style: TextStyle(
+                              'Modifier: ${widget.contact.name}',
+                              style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 24,
+                                fontSize: 22,
                                 fontWeight: FontWeight.bold,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            SizedBox(height: 4),
-                            Text(
-                              'Remplissez les informations du contact',
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Mettre à jour les informations',
                               style: TextStyle(
                                 color: Colors.white70,
                                 fontSize: 14,
@@ -180,7 +185,7 @@ class _AddContactPageState extends State<AddContactPage> {
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.person_add,
+                          Icons.edit,
                           color: Colors.white,
                           size: 24,
                         ),
@@ -199,7 +204,6 @@ class _AddContactPageState extends State<AddContactPage> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      // Carte du formulaire
                       Card(
                         elevation: 5,
                         shape: RoundedRectangleBorder(
@@ -209,22 +213,6 @@ class _AddContactPageState extends State<AddContactPage> {
                           padding: const EdgeInsets.all(24),
                           child: Column(
                             children: [
-                              const Row(
-                                children: [
-                                  Icon(Icons.info, color: Color(0xFF1A237E)),
-                                  SizedBox(width: 10),
-                                  Text(
-                                    'Informations de base',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1A237E),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 20),
-
                               // Nom
                               TextFormField(
                                 controller: nameCtrl,
@@ -235,21 +223,17 @@ class _AddContactPageState extends State<AddContactPage> {
                                   }
                                   return null;
                                 },
-                                textCapitalization: TextCapitalization.words,
                               ),
                               const SizedBox(height: 16),
 
                               // Téléphone
                               TextFormField(
                                 controller: phoneCtrl,
-                                decoration: _inputDecoration('Numéro de téléphone', Icons.phone),
+                                decoration: _inputDecoration('Téléphone', Icons.phone),
                                 keyboardType: TextInputType.phone,
                                 validator: (value) {
                                   if (value == null || value.isEmpty) {
-                                    return 'Veuillez entrer le numéro de téléphone';
-                                  }
-                                  if (value.length < 8) {
-                                    return 'Numéro de téléphone invalide';
+                                    return 'Veuillez entrer le numéro';
                                   }
                                   return null;
                                 },
@@ -259,45 +243,15 @@ class _AddContactPageState extends State<AddContactPage> {
                               // Email
                               TextFormField(
                                 controller: emailCtrl,
-                                decoration: _inputDecoration('Adresse email', Icons.email),
+                                decoration: _inputDecoration('Email', Icons.email),
                                 keyboardType: TextInputType.emailAddress,
-                                validator: (value) {
-                                  if (value != null && value.isNotEmpty) {
-                                    final emailRegex = RegExp(
-                                      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                                    );
-                                    if (!emailRegex.hasMatch(value)) {
-                                      return 'Email invalide';
-                                    }
-                                  }
-                                  return null;
-                                },
                               ),
-                              const SizedBox(height: 20),
-
-                              const Divider(),
                               const SizedBox(height: 16),
-
-                              const Row(
-                                children: [
-                                  Icon(Icons.location_on, color: Color(0xFF1A237E)),
-                                  SizedBox(width: 10),
-                                  Text(
-                                    'Informations supplémentaires',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1A237E),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 20),
 
                               // Adresse
                               TextFormField(
                                 controller: addressCtrl,
-                                decoration: _inputDecoration('Adresse', Icons.home),
+                                decoration: _inputDecoration('Adresse', Icons.location_on),
                                 maxLines: 2,
                               ),
                               const SizedBox(height: 16),
@@ -305,9 +259,8 @@ class _AddContactPageState extends State<AddContactPage> {
                               // Notes
                               TextFormField(
                                 controller: notesCtrl,
-                                decoration: _inputDecoration('Notes', Icons.note),
+                                decoration: _inputDecoration('Notes', Icons.notes),
                                 maxLines: 4,
-                                textCapitalization: TextCapitalization.sentences,
                               ),
                             ],
                           ),
@@ -316,12 +269,12 @@ class _AddContactPageState extends State<AddContactPage> {
 
                       const SizedBox(height: 32),
 
-                      // Boutons d'action
+                      // Boutons
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => Navigator.pop(context),
+                              onPressed: _isLoading ? null : () => Navigator.pop(context),
                               style: OutlinedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 18),
                                 shape: RoundedRectangleBorder(
@@ -329,27 +282,20 @@ class _AddContactPageState extends State<AddContactPage> {
                                 ),
                                 side: const BorderSide(color: Color(0xFF1A237E)),
                               ),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.cancel, color: Color(0xFF1A237E)),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Annuler',
-                                    style: TextStyle(
-                                      color: Color(0xFF1A237E),
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
+                              child: const Text(
+                                'Annuler',
+                                style: TextStyle(
+                                  color: Color(0xFF1A237E),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: _isLoading ? null : _submitForm,
+                              onPressed: _isLoading ? null : _updateContact,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF1A237E),
                                 padding: const EdgeInsets.symmetric(vertical: 18),
@@ -357,7 +303,6 @@ class _AddContactPageState extends State<AddContactPage> {
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                                 elevation: 5,
-                                shadowColor: const Color(0xFF1A237E).withOpacity(0.3),
                               ),
                               child: _isLoading
                                   ? const SizedBox(
@@ -388,8 +333,8 @@ class _AddContactPageState extends State<AddContactPage> {
                         ],
                       ),
 
-                      // Info supplémentaire
-                      const SizedBox(height: 24),
+                      // Note d'information
+                      const SizedBox(height: 20),
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -402,8 +347,7 @@ class _AddContactPageState extends State<AddContactPage> {
                             SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Les champs Nom et Téléphone sont obligatoires. '
-                                'Les autres informations sont optionnelles.',
+                                'La modification fonctionne en supprimant et recréant le contact avec les nouvelles informations.',
                                 style: TextStyle(
                                   color: Color(0xFF1A237E),
                                   fontSize: 13,
@@ -424,5 +368,3 @@ class _AddContactPageState extends State<AddContactPage> {
     );
   }
 }
-
-
