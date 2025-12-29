@@ -13,10 +13,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late Future<List<Contact>> contacts;
-  List<Contact> filteredContacts = [];
+  late Future<List<Contact>> _contactsFuture;
+  List<Contact> _allContacts = [];
+  List<Contact> _filteredContacts = [];
   TextEditingController searchController = TextEditingController();
-  bool isLoading = false;
+  bool _isLoading = false;
   List<String> selectedContacts = [];
   bool _isGridView = false;
   String _filterBy = 'all'; // all, favorite, recent
@@ -56,7 +57,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    refresh();
+    _loadContacts();
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Color(0xFF1A237E),
@@ -67,36 +68,70 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _loadContacts() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      _contactsFuture = ApiService.getContacts();
+      final contacts = await _contactsFuture;
+      
+      setState(() {
+        _allContacts = contacts;
+        _filteredContacts = contacts;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      print('Erreur chargement contacts: $e');
+    }
+  }
+
   void refresh() {
     setState(() {
-      contacts = ApiService.getContacts();
       selectedContacts.clear();
       searchController.clear();
     });
+    _loadContacts();
   }
 
-  void filterContacts(String query) {
-    contacts.then((contactList) {
+  void _filterContacts(String query) {
+    if (query.isEmpty) {
       setState(() {
-        filteredContacts = contactList
-            .where((contact) =>
-                contact.name.toLowerCase().contains(query.toLowerCase()) ||
-                contact.phone.contains(query) ||
-                contact.email.toLowerCase().contains(query.toLowerCase()))
-            .toList();
+        _filteredContacts = _allContacts;
       });
+      return;
+    }
+
+    final filtered = _allContacts.where((contact) {
+      final nameMatch = contact.name.toLowerCase().contains(query.toLowerCase());
+      final phoneMatch = contact.phone.contains(query);
+      final emailMatch = contact.email.toLowerCase().contains(query.toLowerCase());
+      
+      return nameMatch || phoneMatch || emailMatch;
+    }).toList();
+
+    setState(() {
+      _filteredContacts = filtered;
     });
   }
 
-  List<Contact> _getFilteredContacts(List<Contact> contactList) {
+  List<Contact> _getFilteredContacts() {
+    List<Contact> contactsToShow = searchController.text.isNotEmpty 
+        ? _filteredContacts 
+        : _allContacts;
+
     if (_filterBy == 'favorite') {
-      // Pour l'instant, tous les contacts (à implémenter les favoris)
-      return contactList;
+      // À implémenter : filtrer par favoris
+      return contactsToShow;
     } else if (_filterBy == 'recent') {
-      // Les 10 derniers contacts (simulation)
-      return contactList.take(10).toList();
+      // Afficher les 10 plus récents (simulation)
+      return contactsToShow.take(10).toList();
     }
-    return contactList;
+    return contactsToShow;
   }
 
   void _showFilterOptions() {
@@ -194,18 +229,146 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _showContactDetails(Contact contact) async {
-    showModalBottomSheet(
+  Future<void> _handleDelete(String id, String name) async {
+    bool? confirm = await showDialog<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => ContactDetailsSheet(contact: contact),
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Text(
+          'Supprimer le contact',
+          style: TextStyle(
+            color: Color(0xFF1A237E),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.orange,
+              size: 48,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Êtes-vous sûr de vouloir supprimer "$name" ?',
+              style: const TextStyle(fontSize: 16),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey,
+            ),
+            child: const Text('ANNULER'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('SUPPRIMER', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      try {
+        await ApiService.deleteContact(id);
+        _showSuccessSnackBar('Contact supprimé avec succès');
+        refresh(); // Recharger la liste
+      } catch (e) {
+        _showErrorSnackBar('Erreur lors de la suppression: $e');
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check,
+                color: Colors.green,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.error,
+                color: Colors.red,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
     );
   }
 
   Widget _buildContactCard(Contact contact) {
     return GestureDetector(
-      onTap: () => _showContactDetails(contact),
       onLongPress: () {
         setState(() {
           if (selectedContacts.contains(contact.id)) {
@@ -246,187 +409,162 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-          child: Stack(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    // Avatar avec effet premium
-                    Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        gradient: _primaryGradient,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: _primaryColor.withOpacity(0.4),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                // Avatar avec effet premium
+                Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    gradient: _primaryGradient,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: _primaryColor.withOpacity(0.4),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
-                      child: Stack(
-                        children: [
-                          Center(
-                            child: Text(
-                              contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1,
-                              ),
-                            ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Text(
+                          contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1,
                           ),
-                          if (contact.email.isNotEmpty)
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: _primaryColor, width: 2),
-                                ),
-                                child: const Icon(
-                                  Icons.verified,
-                                  color: Color(0xFF1A237E),
-                                  size: 12,
-                                ),
-                              ),
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 20),
-                    
-                    // Informations du contact
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            contact.name,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                      if (contact.email.isNotEmpty)
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: _primaryColor, width: 2),
+                            ),
+                            child: const Icon(
+                              Icons.verified,
                               color: Color(0xFF1A237E),
-                              letterSpacing: 0.5,
+                              size: 12,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 6),
-                          Row(
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 20),
+                
+                // Informations du contact
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        contact.name,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1A237E),
+                          letterSpacing: 0.5,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.phone, size: 16, color: _accentColor),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              contact.phone,
+                              style: TextStyle(
+                                color: Colors.grey[700],
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (contact.email.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
                             children: [
-                              Icon(Icons.phone, size: 16, color: _accentColor),
+                              Icon(Icons.email, size: 16, color: _accentColor),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  contact.phone,
+                                  contact.email,
                                   style: TextStyle(
-                                    color: Colors.grey[700],
-                                    fontSize: 15,
+                                    color: Colors.grey[600],
+                                    fontSize: 14,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
                           ),
-                          if (contact.email.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.email, size: 16, color: _accentColor),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      contact.email,
-                                      style: TextStyle(
-                                        color: Colors.grey[600],
-                                        fontSize: 14,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                        ),
+                    ],
+                  ),
+                ),
+                
+                // Actions
+                Column(
+                  children: [
+                    // Bouton MODIFIER
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A237E).withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.edit, size: 20),
+                        color: const Color(0xFF1A237E),
+                        onPressed: () async {
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => EditContactPage(contact: contact),
                             ),
-                          if (contact.address.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.location_on, size: 16, color: _accentColor),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      contact.address,
-                                      style: TextStyle(
-                                        color: Colors.grey[600],
-                                        fontSize: 13,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
+                          );
+                          if (result == true) {
+                            refresh();
+                          }
+                        },
+                        tooltip: 'Modifier',
                       ),
                     ),
-                    
-                    // Badge de statut
+                    const SizedBox(height: 8),
+                    // Bouton SUPPRIMER
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        gradient: _goldGradient,
-                        borderRadius: BorderRadius.circular(20),
+                        color: Colors.red.withOpacity(0.1),
+                        shape: BoxShape.circle,
                       ),
-                      child: const Text(
-                        'VIP',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        color: Colors.red,
+                        onPressed: () => _handleDelete(contact.id, contact.name),
+                        tooltip: 'Supprimer',
                       ),
                     ),
                   ],
                 ),
-              ),
-              
-              // Indicateur de sélection
-              if (selectedContacts.contains(contact.id))
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: _accentColor,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: _accentColor.withOpacity(0.4),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -480,6 +618,17 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+
+  String _getFormattedDate() {
+    final now = DateTime.now();
+    final day = now.day;
+    final month = now.month;
+    final year = now.year;
+    final weekdays = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+    final months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    
+    return '${weekdays[now.weekday - 1]}, $day ${months[month - 1]} $year';
   }
 
   @override
@@ -573,46 +722,38 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(height: 32),
                   
                   // Statistiques en ligne
-                  FutureBuilder<List<Contact>>(
-                    future: contacts,
-                    builder: (context, snapshot) {
-                      final totalContacts = snapshot.hasData ? snapshot.data!.length : 0;
-                      final recentContacts = snapshot.hasData ? snapshot.data!.take(7).length : 0;
-                      
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: _buildStatisticsCard(
-                              Icons.people,
-                              totalContacts.toString(),
-                              'Contacts',
-                              Colors.white,
-                              Colors.white.withOpacity(0.1),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildStatisticsCard(
-                              Icons.star,
-                              '0',
-                              'Favoris',
-                              _goldColor,
-                              Colors.white.withOpacity(0.1),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildStatisticsCard(
-                              Icons.timeline,
-                              recentContacts.toString(),
-                              '7 derniers jours',
-                              _successColor,
-                              Colors.white.withOpacity(0.1),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildStatisticsCard(
+                          Icons.people,
+                          _allContacts.length.toString(),
+                          'Contacts',
+                          Colors.white,
+                          Colors.white.withOpacity(0.1),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildStatisticsCard(
+                          Icons.star,
+                          '0',
+                          'Favoris',
+                          _goldColor,
+                          Colors.white.withOpacity(0.1),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildStatisticsCard(
+                          Icons.timeline,
+                          _allContacts.length.toString(),
+                          'Total',
+                          _successColor,
+                          Colors.white.withOpacity(0.1),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 24),
                   
@@ -634,7 +775,7 @@ class _HomePageState extends State<HomePage> {
                         Expanded(
                           child: TextField(
                             controller: searchController,
-                            onChanged: filterContacts,
+                            onChanged: _filterContacts,
                             style: const TextStyle(color: _textColor),
                             decoration: InputDecoration(
                               hintText: 'Rechercher un contact...',
@@ -650,7 +791,7 @@ class _HomePageState extends State<HomePage> {
                                       icon: Icon(Icons.close, color: Colors.grey[400]),
                                       onPressed: () {
                                         searchController.clear();
-                                        filterContacts('');
+                                        _filterContacts('');
                                       },
                                     )
                                   : null,
@@ -773,50 +914,7 @@ class _HomePageState extends State<HomePage> {
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: FutureBuilder<List<Contact>>(
-                          future: contacts,
-                          builder: (context, snapshot) {
-                            if (isLoading) {
-                              return _buildLoadingState();
-                            }
-
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return _buildLoadingState();
-                            }
-
-                            if (snapshot.hasError) {
-                              return _buildErrorState();
-                            }
-
-                            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                              return _buildEmptyState();
-                            }
-
-                            final contactList = _getFilteredContacts(
-                              searchController.text.isNotEmpty
-                                  ? filteredContacts
-                                  : snapshot.data!,
-                            );
-
-                            if (contactList.isEmpty && searchController.text.isNotEmpty) {
-                              return _buildNoResultsState();
-                            }
-
-                            return RefreshIndicator(
-                              onRefresh: () async => refresh(),
-                              color: _primaryColor,
-                              backgroundColor: Colors.white,
-                              child: _isGridView
-                                  ? _buildGridView(contactList)
-                                  : ListView.builder(
-                                      itemCount: contactList.length,
-                                      itemBuilder: (context, index) {
-                                        return _buildContactCard(contactList[index]);
-                                      },
-                                    ),
-                            );
-                          },
-                        ),
+                        child: _buildContactsList(),
                       ),
                     ),
                   ],
@@ -864,50 +962,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
-      
-      // Bottom Navigation Bar Premium
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 30,
-              offset: const Offset(0, -10),
-            ),
-          ],
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(30),
-            topRight: Radius.circular(30),
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildNavItem(Icons.home, 'Accueil', true),
-                _buildNavItem(Icons.people, 'Contacts', false),
-                _buildNavItem(Icons.star, 'Favoris', false),
-                _buildNavItem(Icons.settings, 'Paramètres', false),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
-  }
-
-  String _getFormattedDate() {
-    final now = DateTime.now();
-    final day = now.day;
-    final month = now.month;
-    final year = now.year;
-    final weekdays = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
-    final months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-    
-    return '${weekdays[now.weekday - 1]}, $day ${months[month - 1]} $year';
   }
 
   Widget _buildTabButton(int index, String label, IconData icon) {
@@ -954,33 +1009,33 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, bool isActive) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            gradient: isActive ? _primaryGradient : null,
-            color: isActive ? null : Colors.transparent,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            color: isActive ? Colors.white : Colors.grey,
-            size: 22,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: isActive ? _primaryColor : Colors.grey,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ],
+  Widget _buildContactsList() {
+    if (_isLoading) {
+      return _buildLoadingState();
+    }
+
+    final contactsToShow = _getFilteredContacts();
+
+    if (contactsToShow.isEmpty) {
+      if (searchController.text.isNotEmpty) {
+        return _buildNoResultsState();
+      } else {
+        return _buildEmptyState();
+      }
+    }
+
+    return RefreshIndicator(
+      onRefresh: () async => refresh(),
+      color: _primaryColor,
+      backgroundColor: Colors.white,
+      child: _isGridView
+          ? _buildGridView(contactsToShow)
+          : ListView.builder(
+              itemCount: contactsToShow.length,
+              itemBuilder: (context, index) {
+                return _buildContactCard(contactsToShow[index]);
+              },
+            ),
     );
   }
 
@@ -996,7 +1051,15 @@ class _HomePageState extends State<HomePage> {
       itemBuilder: (context, index) {
         final contact = contacts[index];
         return GestureDetector(
-          onTap: () => _showContactDetails(contact),
+          onLongPress: () {
+            setState(() {
+              if (selectedContacts.contains(contact.id)) {
+                selectedContacts.remove(contact.id);
+              } else {
+                selectedContacts.add(contact.id);
+              }
+            });
+          },
           child: Card(
             elevation: 6,
             shape: RoundedRectangleBorder(
@@ -1062,6 +1125,30 @@ class _HomePageState extends State<HomePage> {
                       fontSize: 13,
                     ),
                     textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.edit, size: 18, color: _primaryColor),
+                        onPressed: () async {
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => EditContactPage(contact: contact),
+                            ),
+                          );
+                          if (result == true) {
+                            refresh();
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete, size: 18, color: Colors.red),
+                        onPressed: () => _handleDelete(contact.id, contact.name),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1272,7 +1359,7 @@ class _HomePageState extends State<HomePage> {
           ElevatedButton(
             onPressed: () {
               searchController.clear();
-              filterContacts('');
+              _filterContacts('');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,
@@ -1287,276 +1374,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-    );
-  }
-}
-
-// Widget pour les détails du contact (Bottom Sheet)
-class ContactDetailsSheet extends StatelessWidget {
-  final Contact contact;
-  
-  const ContactDetailsSheet({super.key, required this.contact});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(40),
-          topRight: Radius.circular(40),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 30,
-            offset: Offset(0, -10),
-          ),
-        ],
-      ),
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 60,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              // Header du contact
-              Row(
-                children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [const Color(0xFF1A237E), const Color(0xFF283593)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF1A237E).withOpacity(0.3),
-                          blurRadius: 15,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          contact.name,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A237E),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Contact Professionnel',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A237E).withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.more_vert,
-                      color: Color(0xFF1A237E),
-                      size: 24,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-              // Informations de contact
-              _buildInfoRow(Icons.phone, 'Téléphone', contact.phone),
-              const SizedBox(height: 20),
-              if (contact.email.isNotEmpty)
-                Column(
-                  children: [
-                    _buildInfoRow(Icons.email, 'Email', contact.email),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              if (contact.address.isNotEmpty)
-                Column(
-                  children: [
-                    _buildInfoRow(Icons.location_on, 'Adresse', contact.address),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              if (contact.notes.isNotEmpty)
-                Column(
-                  children: [
-                    _buildInfoRow(Icons.note, 'Notes', contact.notes),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              const SizedBox(height: 32),
-              // Actions
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: Appeler le contact
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1A237E),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                      icon: const Icon(Icons.phone, size: 20),
-                      label: const Text('Appeler'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: Envoyer SMS
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                      icon: const Icon(Icons.message, size: 20),
-                      label: const Text('SMS'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => EditContactPage(contact: contact),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                      icon: const Icon(Icons.edit, size: 20),
-                      label: const Text('Modifier'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        // TODO: Supprimer contact
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                      icon: const Icon(Icons.delete, size: 20),
-                      label: const Text('Supprimer'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 30),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A237E).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: const Color(0xFF1A237E), size: 20),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF1A237E),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
