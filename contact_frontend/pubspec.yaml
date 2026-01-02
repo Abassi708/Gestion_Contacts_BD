@@ -1,22 +1,20 @@
 name: contact_frontend
-description: "Application gestion contacts"
-publish_to: 'none'
-
-version: 1.0.0+1
+description: A Flutter contact management app
+version: 1.0.0
 
 environment:
-  sdk: ^3.9.2
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  http: ^1.2.0
+  http: ^1.1.0
+  provider: ^6.0.5
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true

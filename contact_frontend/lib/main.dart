@@ -13,8 +13,14 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Gestion Contacts',
-      theme: ThemeData(primarySwatch: Colors.indigo),
-      home: const HomePage(), // ✅ OUI ICI
+      theme: ThemeData(
+        primarySwatch: Colors.indigo,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      home: const HomePage(),
     );
   }
 }
